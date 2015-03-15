@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+
+		<title>"Klidně to přeruš!"</title>
+
+		<meta name="description" content="Pojednání o zpracovávání HW přerušení na OS Linux ">
+		<meta name="author" content="Petr Holášek">
+
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/serif.css" id="theme">
+
+		<!-- Code syntax highlighting -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="lib/js/html5shiv.js"></script>
+		<![endif]-->
+	</head>
+
+	<body>
+
+		<div class="reveal">
+
+			<!-- Any section element inside of this container is displayed as a slide -->
+			<div class="slides">
+				<section>
+					<h2>"Klidně to přeruš!"</h2>
+					<h3>aneb pojednání o zpracovávání HW přerušení na OS Linux</h3>
+					<p>
+						<small>Petr Holášek / <a mailto="pholasek@redhat.com">pholasek@redhat.com</a></small>
+					</p>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						# Koho by měly zajímat přerušení?
+						* Administrátory
+						* Systémové inženýry
+						* Uživatele, které zajímá jak jejich OS funguje uvnitř
+					</script>
+				</section>
+
+				<section>
+					<section id="fragments" data-markdown>
+					<script type="text/template">
+						## Obsah
+						* Co je to přerušení? <!-- .element: class="fragment" -->
+						* Jak ho zpracuje kernel? <!-- .element: class="fragment" -->
+						* Co je afinita přerušení? <!-- .element: class="fragment" -->
+						* K čemu slouží irqbalance? <!-- .element: class="fragment" -->
+					</script>
+					</section>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						# KERNEL
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Přerušení
+						* HW upozorňuje CPU na nutnost obsluhy události
+						* Reprezentace v systému pomocí IRQ čísla
+						* Pin-based IRQ x MSI(-X)
+					</script>
+				</section>
+				<section data-markdown>
+					<script type="text/template">
+						## Pin-based IRQ
+						* Vyvoláno elektrickým signálem na pinu sběrnice
+						* Pin-based IRQ může být sdílené (např. na PCI)
+						* Signál může "předběhnout" data
+					</script>
+				</section>
+				<section data-markdown>
+					<script type="text/template">
+						## MSI (Message Signaled Interrupts)
+						* CPU obdrží přerušení po zápisu na určitou adresu
+						* Poprvé ve specifikaci PCI 2.2
+						* Vylepšené MSI-X poprvé u PCI 3.0
+							* Podpora více přerušení pro 1 zařízení, individuálně konfigurovatelné
+							* Použití u síťových karet (fronta paketů) nebo disků (porty)
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Řadiče přerušení
+						* APIC (*Advanced Programmable Interrupt Controller*)
+							* LAPIC (*local APIC*) - u CPU
+							* IOAPIC (*I/O APIC*) - u zařízení
+						* Vzájemná komunikace po systémové sběrnici
+						* V minulosti speciální APIC sběrnice
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## IRQ domény
+						* Počet řadičů přerušení > 1
+						* => již neplatí mapovaní `intr = intr_lines[IRQ]`
+						* kernel knihovna `irq_domain`
+						* udržuje mapování Linux IRQ na HW přerušení
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Interrupt handler
+						* Rutina volaná při přijetí přerušení
+						* Je nutné vyřídit požadavek rychle
+						* Vše zdlouhavé je delegováno na později
+							* Top halves
+							* Bottom halves (*tasklets*, *workqueues*)
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						# USERSPACE
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Rozhraní jádra
+						* `/proc/interrupts`
+						* `/proc/irq/X/`
+						* `/sys/devices/.../irq`
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template"><pre>
+[pholasek@localhost ~]$ cat /proc/interrupts 
+           CPU0       CPU1       
+  0:         38          0  IR-IO-APIC-edge      timer
+  1:       3676          0  IR-IO-APIC-edge      i8042
+  8:          1          0  IR-IO-APIC-edge      rtc0
+  9:      55260          0  IR-IO-APIC-fasteoi   acpi
+ 12:     456029          0  IR-IO-APIC-edge      i8042
+ 16:     514065          0  IR-IO-APIC  16-fasteoi   ehci_hcd:usb3
+ 18:          0          0  IR-IO-APIC  18-fasteoi   i801_smbus
+ 19:         30          0  IR-IO-APIC  19-fasteoi   mmc0
+ 23:        119          0  IR-IO-APIC  23-fasteoi   ehci_hcd:usb4
+ 24:          0          0  DMAR_MSI-edge      dmar0
+ 25:          0          0  DMAR_MSI-edge      dmar1
+ 26:     460503          0  IR-PCI-MSI-edge      0000:00:1f.2
+ 27:          1          0  IR-PCI-MSI-edge      xhci_hcd
+ 31:          0          0  IR-PCI-MSI-edge      xhci_hcd
+ 32:         27          0  IR-PCI-MSI-edge      mei_me
+ 33:     607203     118662  IR-PCI-MSI-edge      i915
+ 34:         92          0  IR-PCI-MSI-edge      snd_hda_intel
+ 35:    4763376          0  IR-PCI-MSI-edge      iwlwifi
+ 36:       8898          0  IR-PCI-MSI-edge      em1
+NMI:        203        440   Non-maskable interrupts
+PMI:        203        440   Performance monitoring interrupts
+RES:     330885     314209   Rescheduling interrupts
+CAL:       7327       1216   Function call interrupts
+TLB:     264756     431348   TLB shootdowns`
+				</pre>	</script>
+				</section>
+
+				<section>
+					<h2>Afinita přerušení</h2>
+				       <blockquote cite="http://www.oxforddictionaries.com/definition/english/affinity">
+					&ldquo; A natural liking for and understanding of someone or something:&rdquo;
+					</blockquote>
+					<ul>
+						<li>Určuje množinu procesorů přijímajících přerušení</li>
+						<li>V Linuxu na více místech (cpu affinity, NUMA affinity)</li>
+						<li><code>/proc/irq/X/smp_affinity</code> - např. <code>0xf3</code></li>
+					</ul>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Problémy distribuce přerušení
+						* Zařízení s vysokou frekvencí přerušení (síť.karty, disky)
+						* Zahlcení CPU
+						* Výpadky cache procesoru
+						* V kernelu sofistikované řízení chybí
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Irqbalance
+						* démon běžící na většině distribucí
+						* na základě analýz a heuristik distribuuje přerušení na procesory
+						* obvykle není třeba zásah uživatele do běhu
+						* vstupuje do hry hlavně u intenzivnějších I/O operací
+						* [https://github.com/Irqbalance/irqbalance](https://github.com/Irqbalance/irqbalance)
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Algoritmus irqbalance
+						* Parsování souboru `/proc/interrupts`
+							* zjištění všech přerušení a vytížení jednotlivých CPU
+						* Parsování hierarchie zařízení z `/sys/devices/...`
+							* IRQ jsou umístěny do hierarchie
+						* Vyhodnocení přetížených procesorů
+						* Vyhodnocení nejvíce frekventovaných přerušení
+						* Na základě všech získaných údajů nastavení afinity jednotlivých IRQ
+						* <code>sleep(10);</code>
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Možnosti nastavení/experimentů
+						* spustit intenzivnější síťovou/diskovou operaci
+						* `irqbalance --debug` + `watch cat /proc/interrupts`
+						* `--hintpolicy` - respektování afinit požadovaných ovladači
+						* `--banirq <IRQ>` - ignorovat určité IRQ
+						* ..., izolace specifických IRQ, uživatelská pravidla, atd.
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Vývoj irqbalance
+						* Málo vývojářů, testování i patche vítány
+						* [https://github.com/Irqbalance/irqbalance](https://github.com/Irqbalance/irqbalance)
+						* [http://www.freelists.org/list/irqbalance](http://www.freelists.org/list/irqbalance)
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Zdroje
+						* *Computer Architecture: A Quantitative Approach by John L. Hennessy*
+						* kernel - Documentation/IRQ*
+						* `man irqbalance` 
+					</script>
+				</section>
+
+				<section data-markdown>
+					<script type="text/template">
+						## Děkuji za pozornost!
+					</script>
+				</section>
+
+			</div>
+
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+
+			// Full list of configuration options available at:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+
+				transition: 'slide', // none/fade/slide/convex/concave/zoom
+
+				// Optional reveal.js plugins
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+					{ src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/highlight/highlight.js', async: true, condition: function() { return !!document.querySelector( 'pre code' ); }, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true },
+					{ src: 'plugin/notes/notes.js', async: true }
+				]
+			});
+
+		</script>
+
+	</body>
+</html>
